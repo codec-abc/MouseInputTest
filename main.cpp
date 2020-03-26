@@ -5,6 +5,11 @@
 #include <windows.h>
 #include <iostream>
 
+bool sleep = true;
+int sleepDuration = 1400;
+int mouseCursorWidth = 3;
+int mouseClickCursorWidth = 4;
+
 #ifndef HID_USAGE_PAGE_GENERIC
 #define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
 #endif
@@ -17,8 +22,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 int paint_count = 0;
 int mouse_count = 0;
 UINT timerID = 9999;
-int mouse_x = 0;
-int mouse_y = 0;
+int mouse_x = 400;
+int mouse_y = 400;
+bool has_mouse_click = false;
+int mouse_click_x = mouse_x;
+int mouse_click_y = mouse_y;
 
 COLORREF buildColorRef(char r, char g, char b) {
     return ((COLORREF)(((BYTE)(r) | ((WORD)((BYTE)(g)) << 8)) | (((DWORD)(BYTE)(b)) << 16)));
@@ -64,7 +72,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
 
     timerID = SetTimer(hwnd,             // handle to main window 
         timerID,            // timer identifier 
-        400,                // interval as ms
+        2,                // interval as ms
         (TIMERPROC)NULL);     // no timer callback 
 
     if (hwnd == NULL)
@@ -87,6 +95,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    //OutputDebugString(TEXT("running WindowProc\n"));
     switch (uMsg)
     {
     case WM_DESTROY:
@@ -99,18 +108,47 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         HDC hdc = BeginPaint(hwnd, &ps);
 
         // All painting occurs here, between BeginPaint and EndPaint.
-        HBRUSH brush = CreateSolidBrush(buildColorRef(paint_count % 255,0,0));
-        FillRect(hdc, &ps.rcPaint, brush); // (HBRUSH)(COLOR_WINDOW + 1)
+        
+        HBRUSH brush = CreateSolidBrush(buildColorRef(
+            sleep ? paint_count % 255 : 255, 
+            0, 
+            0)
+        );
+
+        FillRect(hdc, &ps.rcPaint, brush);
+
+        struct tagRECT a;
+
+       
+        if (has_mouse_click) {
+            brush = CreateSolidBrush(buildColorRef(0, 0, 255));
+            a.bottom = mouse_click_y - mouseClickCursorWidth;
+            a.top = mouse_click_y + mouseClickCursorWidth;
+            a.left = mouse_click_x - mouseClickCursorWidth;
+            a.right = mouse_click_x + mouseClickCursorWidth;
+            FillRect(hdc, &a, brush);
+        }
+        
+        brush = CreateSolidBrush(buildColorRef(255, 255, 255));
+
+        a.bottom = mouse_y - mouseCursorWidth;
+        a.top = mouse_y + mouseCursorWidth;
+        a.left = mouse_x - mouseCursorWidth;
+        a.right = mouse_x + mouseCursorWidth;
+        FillRect(hdc, &a, brush);
+
         EndPaint(hwnd, &ps);
 
         {
             wchar_t buffer[50];
             swprintf(buffer, L"paint %d\n", paint_count);
             OutputDebugString(buffer);
-            paint_count++;
+            paint_count += 50;
         }
 
-        Sleep(3000);
+        if (sleep) {
+            Sleep(sleepDuration);
+        }
         break;
     }
     case WM_INPUT:
@@ -151,22 +189,32 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         else if (raw->header.dwType == RIM_TYPEMOUSE)
         {
             wchar_t buffer[1000];
-            swprintf(buffer,
-                TEXT("Mouse: usFlags=%04x ulButtons=%04x usButtonFlags=%04x usButtonData=%04x ulRawButtons=%04x lLastX=%04x lLastY=%04x ulExtraInformation=%04x\r\n"),
-                raw->data.mouse.usFlags,
-                raw->data.mouse.ulButtons,
-                raw->data.mouse.usButtonFlags,
-                raw->data.mouse.usButtonData,
-                raw->data.mouse.ulRawButtons,
-                raw->data.mouse.lLastX,
-                raw->data.mouse.lLastY,
-                raw->data.mouse.ulExtraInformation);
+
+            //swprintf(buffer,
+            //    TEXT("Mouse: usFlags=%04x ulButtons=%04x usButtonFlags=%04x usButtonData=%04x ulRawButtons=%04x lLastX=%04x lLastY=%04x ulExtraInformation=%04x\r\n"),
+            //    raw->data.mouse.usFlags,
+            //    raw->data.mouse.ulButtons,
+            //    raw->data.mouse.usButtonFlags,
+            //    raw->data.mouse.usButtonData,
+            //    raw->data.mouse.ulRawButtons,
+            //    raw->data.mouse.lLastX,
+            //    raw->data.mouse.lLastY,
+            //    raw->data.mouse.ulExtraInformation);
 
             //OutputDebugString(buffer);
 
             LONG x = raw->data.mouse.lLastX;
             LONG y = raw->data.mouse.lLastY;
             USHORT button_flags = raw->data.mouse.usButtonFlags;
+
+            mouse_x = mouse_x + x;
+            mouse_y = mouse_y + y;
+
+            if (button_flags == 0x0001) {
+                has_mouse_click = true;
+                mouse_click_x = mouse_x;
+                mouse_click_y = mouse_y;
+            }
 
             swprintf(buffer,
                 TEXT("Mouse! move: %04x %04x, left button state change: %s\n"),
@@ -178,31 +226,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         button_flags == 0x0002 ? TEXT("button up") : TEXT("no change"));
 
             OutputDebugString(buffer);
-
-            //if (FAILED(hResult))
-            //{
-            //    // TODO: write error handler
-            //}
-            //OutputDebugString(szTempOutput);
-
-            //OutputDebugString(TEXT("mouse event\n"));
-
-            /*   {
-                wchar_t buffer[50];
-                swprintf(buffer, L"mouse %d\n", mouse_count);
-                OutputDebugString(buffer);
-                mouse_count++;
-            }*/
-
-            //BOOL updateWindow = UpdateWindow(hwnd);
-
-            //{
-            //    wchar_t buffer[50];
-            //    swprintf(buffer, L"update window %d\n", updateWindow);
-            //    OutputDebugString(buffer);
-            //}
-
-            // RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE);
         }
 
         delete[] lpb;
